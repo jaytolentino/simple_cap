@@ -3,221 +3,239 @@
 #
 # Learn more at https://news.crunchbase.com/news/cap-tables-share-structures-valuations-oh-case-study-early-stage-funding/
 
-# Bonus discussion
-# How would you track employees? How would you handle vesting periods?
-# How would you track different terms for different investors?
-
 class Shareholder
-  attr_accessor :name, :share_class, :num_shares, :percent, :price, :value, :is_founder
+  attr_accessor :name, :num_shares, :percent, :price, :value
 
-  def initialize(name, num_shares, price, is_founder: false, percent: 0.0, share_class: 'Common')
+  def initialize(name, num_shares, percent, price)
     @name = name
-    @share_class = share_class
     @num_shares = num_shares
     @percent = percent
     @price = price
-    @is_founder = is_founder
 
-    recalculate_price
+    recalculate_value
   end
 
-  def recalculate_price
-    @value = num_shares * price
+  def recalculate_value
+    @value = @num_shares * @price
   end
 
-  def is_common?
-    share_class == 'Common'
+  def to_s
+    "#{@name} => num_shares: #{@num_shares}, percent: #{@percent}, price: #{@price}, value: #{@value}"
   end
 end
 
-class SAFE
-  attr_accessor :name, :paid_amount, :discount, :val_cap, :future_share_class
+class Safe
+  attr_accessor :name, :paid_amount, :discount, :cap
 
-  def initialize(name, paid_amount, discount = 0.0, val_cap = 0, future_share_class = 'Seed Preferred')
+  def initialize(name, paid_amount, discount, cap)
     @name = name
     @paid_amount = paid_amount
     @discount = discount
-    @val_cap = val_cap
-    @future_share_class = future_share_class
+    @cap = cap
+  end
+
+  def to_s
+    "[SAFE] #{@name} => paid_amount: #{@paid_amount}, discount: #{@discount}, cap: #{@cap}"
   end
 end
 
 class SimpleCap
-  POOL_NAME = 'Options pool'.freeze
-
   attr_accessor :shareholders, :safes
 
   # Part 1: Create the initial cap table
-  # When incorporating a company, the founders will create an initial cap table
-  # including equity split amongst the founders and shares kept for future
-  # employees.
+  # When incorporating a company, founders will create an initial cap table
+  # including equity split amongst the founders. Any unused shares should be
+  # reserved as an options pool for future employees.
   #
-  # Given a hash of founder names to equity percentages and a total number of
-  # shares, create an initial cap table.
+  # Given the following input, create an initial cap table, including the future
+  # employee options pool.
   #
-  # Any unused percentage of shares will be saved as an options pool for future
-  # employees
+  # Input:
+  #
+  # founders_to_equity_percent: hash with a string key representing the founder's
+  # name and float value for the equity percent
+  # e.g. { 'Maria' => 0.50, 'Rajkumar' => 0.35 }
+  #
+  # total_shares: int of total shares issued on incorporation
+  # e.g. 10_000_000
+  #
+  # price_per_share (optional): float representing USD value of each share
+  # e.g. 0.001 for $0.001
   def initialize(founders_to_equity_percent, total_shares, price_per_share)
+    @shareholders = []
     @safes = []
-    @shareholders = founders_to_equity_percent.map do |founder, equity_percent|
-      num_shares = total_shares * equity_percent
-      Shareholder.new(
-        founder,
-        num_shares,
+
+    founders_to_equity_percent.map do |name, equity_percent|
+      @shareholders.push(Shareholder.new(
+        name,
+        (total_shares * equity_percent).round,
+        equity_percent,
         price_per_share,
-        is_founder: true,
-        percent: equity_percent,
-      )
+      ))
     end
 
-    # Future options (employee pool)
-    pool_percent = (1 - @shareholders.sum(&:percent)).round(4)
-    num_shares = (total_shares * pool_percent).to_i
-
+    # Add options pool
+    options_equity_percent = (1 - @shareholders.sum(&:percent)).round(4)
     @shareholders.push(Shareholder.new(
-      POOL_NAME,
-      num_shares,
+      'Options pool',
+      (total_shares * options_equity_percent).round,
+      options_equity_percent,
       price_per_share,
-      percent: pool_percent,
     ))
-
-    # TODO should include sanity check to ensure shareholder num_shares total == total_shares
   end
 
   # Part 2: Add a SAFE round
   # After incorporation, founders often raise a round of funding without giving
-  # equity right away. Instead, they promise to give equity at a later round. We
-  # want to track this promised equity to keep for future calculations.
+  # equity right away. Instead, they promise to give equity to these investors
+  # at a later round (known as a 'SAFE'). We want to track this promised equity
+  # for future calculations.
   #
-  # The advantage of a SAFE is securing special terms when converting to equity
-  # in a future round:
-  # 1. Discount: purchase future shares at a discount
-  # 2. Valuation Cap: purchase future shares at a price based on a maximum
-  #    valuation amount
+  # Since these investments are quite risky, investors typically secure
+  # special terms in their SAFE acquire more equity in future rounds. We'll
+  # focus on two types of terms:
   #
-  # Input
-  # { 'Investor Name' => [paid_amount, discount, val_cap] }
-  def add_safes(investor_to_terms)
-    investor_to_terms.map do |investor, terms|
-      @safes.push(SAFE.new(investor, *terms))
-    end
+  # 1. Discount: investors can purchase future shares at a discounted price
+  #
+  # 2. Valuation Cap: investors can purchase future shares at a price based on
+  #    a maximum valuation amount
+  #
+  # Given the following input, create SAFEs to track for the future.
+  #
+  # Input:
+  #
+  # investors_to_terms: hash with a string key representing the investor's name
+  # and an array of terms shaped like example below
+  # e.g. {
+  #   '100X Ventures' => [
+  #     1_500_000.0,  # Amount invested as a float
+  #     0.20,         # 20% discount as a float
+  #     12_000_000.0, # $12M valuation cap as a float
+  #   ]
+  # }
+  #
+  # Output:
+  # No output required, but up to your discretion
+  def add_safes(investors_to_terms)
+    investors_to_terms.map { |name, terms| @safes.push(Safe.new(name, *terms)) }
   end
 
   # Part 3: Add a priced round
   # Eventually, the company may become successful enough to raise a priced round
-  # of funding. We want to convert the SAFE notes into equity, adding the new
-  # investors and the converted investors to the cap table. Varying SAFE terms
-  # will result in a separate post-money valuation once all SAFEs are converted.
+  # of funding. This means that the company is valued at an initial amount,
+  # called the pre-money valuation. This is used to value the existing shares
+  # and deal out shares to new investors as well as SAFE investors.
   #
-  # returns the updated shareholders
-  def add_priced_round(investors_to_paid_amounts, pre_money_valuation, shareholders: @shareholders)
-    # Price-per-share is { pre-money valuation OR valuation cap / total pre-existing shares }
-    total_pre_existing_shares = @shareholders.sum(&:num_shares)
-    price_per_share = (pre_money_valuation / total_pre_existing_shares).round(2)
-
-    # Start with converting SAFEs
-    shareholders.concat(safes_to_shareholders(price_per_share, pre_money_valuation))
-
-    # Next, let's create Shareholders for the new investor(s)
-    # { 'Investor Name' => paid_amount }
-    shareholders.concat(priced_investors_to_shareholders(investors_to_paid_amounts, price_per_share))
-
-    # Lastly, recalculate percentage using the post-money share count
-    total_post_money_shares =  shareholders.sum(&:num_shares)
-    shareholders.map do |shareholder|
-      shareholder.price = price_per_share # Update since shares are now valued at a new price
-      shareholder.percent = (shareholder.num_shares / total_post_money_shares).round(4)
-      shareholder.recalculate_price
-    end
-
-    shareholders
-  end
-
-  # Bonus: Founder-Friendly Rounds
-  # Let's say founders want to know whether they will lose majority stake in the
-  # company following a round with tentative investors.
+  # Once all shares are evaluated for new and previous investors, the value of
+  # the company will change. This is called the post-money valuation.
   #
-  # Create a method that takes investors and a pre-money valuation then returns
-  # true if the founders will retain majority stake in the company and false
-  # otherwise.
+  # When adding a priced round, we'll need to:
   #
-  # This is a test for a potential round, so do not mutate the existing cap table
-  # data.
-  def is_paid_round_founder_friendly?(investors_to_paid_amounts, pre_money_valuation)
-    @test_shareholders = add_priced_round(
-      investors_to_paid_amounts,
-      pre_money_valuation,
-      shareholders: @shareholders.dup,
-    )
+  # 1. Determine the price-per-share
+  #    i.e. { pre-money valuation / total pre-existing shares }
+  #
+  # 2. Convert the SAFEs into shareholders. Be sure to...
+  #    - If applicable, discount the price-per-share using the SAFE discount
+  #    - If applicable, adjust the price-per-share by dividing with the SAFE
+  #      valuation cap instead of the round's pre-money valuation
+  #    - Note that, even if the price-per-share used
+  #
+  # 3. Convert the new investors into shareholders
+  #
+  # 4. Re-calculate the percentage ownership and value for each shareholder
+  #    using the new total number of shares and new price-per-share
+  #    - Be sure to update each shareholder to the new price-per-share
+  #
+  # Input:
+  #
+  # investors_to_paid_amounts: hash with a string key representing the investor's
+  # name a float value for the investment amount
+  # e.g. { 'Next Stage VC' => 4_500_000.0 }
+  #
+  # pre_money_valuation: float representing the company's pre-money valuation
+  # e.g. 20_000_000.0
+  #
+  # Output:
+  # Return the post-money valuation as a float
+  # e.g. 98_765_432.1012
+  def add_priced_round(investors_to_paid_amounts, pre_money_valuation)
+    # 1. Determine the price-per-share
+    total_shares = @shareholders.sum(&:num_shares)
+    price_per_share = pre_money_valuation / total_shares
 
-    founder_percent = @test_shareholders.select(&:is_founder).sum(&:percent)
-    puts founder_percent
-
-    investor_percent = @test_shareholders.reject(&:is_common?).sum(&:percent)
-    puts investor_percent
-
-    founder_percent > investor_percent
-  end
-
-  private
-
-  def safes_to_shareholders(price_per_share, pre_money_valuation)
-    total_pre_existing_shares = @shareholders.sum(&:num_shares)
+    # 2. Convert the SAFEs into shareholders
     @safes.map do |safe|
-      # Remember to NOT use the valuation cap if it is greater than the actual
-      # pre-money valuation
-      actual_price_per_share = if safe.val_cap > 0 && safe.val_cap < pre_money_valuation
-        (safe.val_cap / total_pre_existing_shares).round(2)
+      # Question: What should we do if a SAFE has *both* a discount and cap?
+      # Answer:   Use either the discount OR cap, whichever yields a lower price for the investor
+
+      discounted_price_per_share = price_per_share * (1 - safe.discount)
+      capped_price_per_share = if safe.cap > 0 && safe.cap < pre_money_valuation
+        safe.cap / total_shares
       else
         price_per_share
       end
 
-      if safe.discount > 0
-        actual_price_per_share = price_per_share * (1 - safe.discount)
-      end
+      # Question: What if the original price-per-share is lower than the capped price?
+      # Answer:   Use whichever yields the lower price for the investor
+      actual_price_per_share = [
+        price_per_share,
+        discounted_price_per_share,
+        capped_price_per_share,
+      ].min
 
-     Shareholder.new(
+      @shareholders.push(Shareholder.new(
         safe.name,
-        (safe.paid_amount / actual_price_per_share).round(2),
+        (safe.paid_amount / actual_price_per_share).round,
+        0.0, # to be recalculated
         price_per_share,
-        share_class: safe.future_share_class,
-      )
+      ))
     end
+
+    # 3. Convert the new investors into shareholders
+    investors_to_paid_amounts.map do |name, paid_amount|
+      @shareholders.push(Shareholder.new(
+        name,
+        (paid_amount / price_per_share).round,
+        0.0, # to be recalculated
+        price_per_share,
+      ))
+    end
+
+    # 4. Re-calculate the percentage ownership, price, and value for each shareholder
+    total_post_money_shares = @shareholders.sum(&:num_shares)
+    @shareholders.map do |shareholder|
+      shareholder.percent = (shareholder.num_shares / total_post_money_shares).round(4)
+      shareholder.price = price_per_share
+      shareholder.recalculate_value
+    end
+
+    # Return the post-money valuation as a float
+    @shareholders.sum(&:value)
   end
 
-  def priced_investors_to_shareholders(investors_to_paid_amounts, price_per_share)
-    investors_to_paid_amounts.map do |investor, paid_amount|
-      Shareholder.new(
-        investor,
-        paid_amount / price_per_share,
-        price_per_share,
-        share_class: 'Series A Preferred',
-      )
-    end
-  end
+  # Bonus discussion
+  # How would you track employees? How would you handle vesting periods?
+  # How would you track different terms for different investors?
 end
 
-# part 1
-sc = SimpleCap.new({ 'Jill' => 0.48, 'Jack' => 0.32 }, 10000000, 0.001)
-# puts sc.shareholders.map { |s| "#{s.name}: #{s.share_class}, #{s.num_shares}, #{s.percent}, #{s.price}, #{s.value}" }
+# Part 1
+sc = SimpleCap.new({
+  'Jill' => 0.48,
+  'Jack' => 0.32,
+}, 10_000_000, 0.001)
+# puts sc.shareholders
 
-# part 2
+# Part 2
 sc.add_safes({
-  'Opaque Ventures' => [2500000, 0.2, 0.0], # 20% discount
-  'BlackBox Capital' => [2500000, 0.0, 10000000], # 10M val cap
+  'Opaque Ventures'  => [500_000.0,   0.2,  0.0],          # 20% discount, no cap
+  'BlackBox Capital' => [1_000_000.0, 0.0,  10_000_000.0], # no discount, 10M cap
+  'Sandy Hills VC'   => [1_500_000.0, 0.15, 20_000_000.0], # 15% discount, 20M cap
 })
-# puts sc.safes.map { |s| "#{s.name}: #{s.paid_amount} @ #{s.discount * 100}% discount, #{s.val_cap} valuation cap" }
+# puts sc.safes
 
-# part 3
-# puts sc.add_priced_round({
-#   'Cormorant Ventures' => 4000000,
-#   'Provident Capital' => 2000000,
-#   'BlackBox Capital' => 1000000,
-# }, 15000000).sum(&:value)
-# puts sc.shareholders.map { |s| "#{s.name}: #{s.share_class}, #{s.num_shares}, #{s.percent}, #{s.price}, #{s.value}" }
-
-puts sc.is_paid_round_founder_friendly?({
-  'Cormorant Ventures' => 4000000,
-  'Provident Capital' => 2000000,
-  'BlackBox Capital' => 1000000,
-}, 15000000)
+# Part 3
+puts sc.add_priced_round({
+  'Cormorant Ventures' => 4_000_000.0,
+  'Provident Capital'  => 2_000_000.0,
+  'BlackBox Capital'   => 1_000_000.0,
+}, 15000000.0)
+# puts sc.shareholders
