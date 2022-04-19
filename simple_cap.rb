@@ -116,21 +116,21 @@ class SimpleCap
     price_per_share = (pre_money_valuation / total_pre_existing_shares).round(2)
 
     # Start with converting SAFEs
-    @shareholders.concat(safes_to_shareholders(price_per_share, pre_money_valuation))
+    shareholders.concat(safes_to_shareholders(price_per_share, pre_money_valuation))
 
     # Next, let's create Shareholders for the new investor(s)
     # { 'Investor Name' => paid_amount }
-    @shareholders.concat(priced_investors_to_shareholders(investors_to_paid_amounts, price_per_share))
+    shareholders.concat(priced_investors_to_shareholders(investors_to_paid_amounts, price_per_share))
 
     # Lastly, recalculate percentage using the post-money share count
-    total_post_money_shares =  @shareholders.sum(&:num_shares)
-    @shareholders.map do |shareholder|
+    total_post_money_shares =  shareholders.sum(&:num_shares)
+    shareholders.map do |shareholder|
       shareholder.price = price_per_share # Update since shares are now valued at a new price
       shareholder.percent = (shareholder.num_shares / total_post_money_shares).round(4)
       shareholder.recalculate_price
     end
 
-    @shareholders
+    shareholders
   end
 
   # Bonus: Founder-Friendly Rounds
