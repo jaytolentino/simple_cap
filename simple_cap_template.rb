@@ -15,7 +15,7 @@ end
 class SAFE
   # Feel free to adjust this class as needed
 
-  attr_accessor :name, :paid_amount, :discount, :val_cap
+  attr_accessor :name, :paid_amount, :discount, :cap
 
   def initialize
   end
