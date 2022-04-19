@@ -12,7 +12,7 @@ class Shareholder
   end
 end
 
-class SAFE
+class Safe
   # Feel free to adjust this class as needed
 
   attr_accessor :name, :paid_amount, :discount, :cap

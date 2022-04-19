@@ -24,7 +24,7 @@ class Shareholder
   end
 end
 
-class SAFE
+class Safe
   attr_accessor :name, :paid_amount, :discount, :cap
 
   def initialize(name, paid_amount, discount, cap)
@@ -116,7 +116,7 @@ class SimpleCap
   # Output:
   # No output required, but up to your discretion
   def add_safes(investors_to_terms)
-    investors_to_terms.map { |name, terms| @safes.push(SAFE.new(name, *terms)) }
+    investors_to_terms.map { |name, terms| @safes.push(Safe.new(name, *terms)) }
   end
 
   # Part 3: Add a priced round
